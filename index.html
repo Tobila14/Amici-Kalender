@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amici Kalender</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      padding: 20px;
+    }
+
+    /* ── CALENDAR ── */
+    .calendar {
+      background: rgba(255,255,255,0.97);
+      border-radius: 24px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .calendar-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 28px 24px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .month-name { font-size: 1.6rem; font-weight: 700; }
+    .year { font-size: 0.95rem; opacity: 0.8; margin-top: 2px; text-align: center; }
+
+    .nav-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 1.3rem;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s, transform .1s;
+    }
+    .nav-btn:hover { background: rgba(255,255,255,0.35); }
+    .nav-btn:active { transform: scale(0.93); }
+
+    .calendar-body { padding: 20px 16px 16px; }
+
+    .weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      margin-bottom: 8px;
+    }
+    .weekday {
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #a0aec0;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      padding: 6px 0;
+    }
+
+    .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+
+    .day {
+      aspect-ratio: 1;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: #2d3748;
+      transition: background .15s, color .15s, transform .1s;
+      user-select: none;
+      position: relative;
+    }
+    .day:hover:not(.empty):not(.other-month) { background: #f0ebff; color: #764ba2; transform: scale(1.08); }
+    .day.other-month { color: #e2e8f0; cursor: default; pointer-events: none; }
+    .day.weekend:not(.today):not(.selected) { color: #e05c9e; }
+    .day.today:not(.selected) {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(102,126,234,0.45);
+    }
+    .day.selected {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(102,126,234,0.45);
+    }
+    .day.booked {
+      background: #fed7e2;
+      color: #9b2c47;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .day.booked:hover {
+      background: #fbb6ce;
+      transform: scale(1.08);
+    }
+    .day.booked::after {
+      content: '';
+      position: absolute;
+      bottom: 4px;
+      left: 50%; transform: translateX(-50%);
+      width: 4px; height: 4px;
+      background: #e05c9e;
+      border-radius: 50%;
+    }
+
+    /* ── SELECTION BAR ── */
+    .selection-bar {
+      margin: 14px 0 0;
+      padding: 12px 16px;
+      background: #f7f5ff;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 52px;
+    }
+    .selection-bar .label {
+      font-size: 0.82rem;
+      color: #6b7280;
+      flex: 1;
+    }
+    .selection-bar .label strong { color: #764ba2; }
+
+    .book-btn {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity .2s, transform .1s;
+    }
+    .book-btn:hover { opacity: 0.9; }
+    .book-btn:active { transform: scale(0.96); }
+    .book-btn:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+
+    .modal {
+      background: white;
+      border-radius: 20px;
+      padding: 32px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+      transform: translateY(16px);
+      transition: transform .25s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+
+    .modal h2 {
+      font-size: 1.3rem;
+      color: #2d3748;
+      margin-bottom: 6px;
+    }
+    .modal .subtitle {
+      font-size: 0.82rem;
+      color: #a0aec0;
+      margin-bottom: 22px;
+    }
+    .modal .subtitle strong { color: #764ba2; }
+
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      color: #2d3748;
+      outline: none;
+      transition: border-color .2s;
+      font-family: inherit;
+    }
+    .field input:focus { border-color: #764ba2; }
+
+    .selected-days-preview {
+      background: #f7f5ff;
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 20px;
+      font-size: 0.82rem;
+      color: #764ba2;
+      font-weight: 500;
+      line-height: 1.6;
+    }
+
+    .modal-actions { display: flex; gap: 10px; }
+    .cancel-btn {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: white;
+      color: #6b7280;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+      font-family: inherit;
+    }
+    .cancel-btn:hover { border-color: #764ba2; color: #764ba2; }
+
+    .confirm-btn {
+      flex: 2;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s;
+      font-family: inherit;
+    }
+    .confirm-btn:hover { opacity: 0.9; }
+
+    /* ── SUCCESS TOAST ── */
+    .toast {
+      position: fixed;
+      bottom: 30px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #48bb78;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 50px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      box-shadow: 0 8px 24px rgba(72,187,120,0.4);
+      z-index: 200;
+      transition: transform .35s cubic-bezier(.34,1.56,.64,1);
+      white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── BOOKINGS LIST ── */
+    .bookings-section {
+      margin-top: 14px;
+      border-top: 1px solid #f0ebff;
+      padding-top: 14px;
+    }
+    .bookings-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #a0aec0;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+    .booking-entry {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #fdf4ff;
+      border-radius: 10px;
+      margin-bottom: 6px;
+      font-size: 0.82rem;
+    }
+    .booking-entry .who { font-weight: 600; color: #764ba2; }
+    .booking-entry .when { color: #6b7280; }
+    .booking-entry .del-btn {
+      background: none; border: none;
+      color: #e05c9e; cursor: pointer;
+      font-size: 1rem; line-height: 1;
+      padding: 2px 4px;
+      border-radius: 6px;
+      transition: background .15s;
+    }
+    .booking-entry .del-btn:hover { background: #fed7e2; }
+    .no-bookings { font-size: 0.82rem; color: #cbd5e0; text-align: center; padding: 4px 0 6px; }
+
+    /* ── STORNO MODAL ── */
+    .storno-modal .storno-info {
+      background: #fff5f7;
+      border: 2px solid #fed7e2;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+    }
+    .storno-modal .storno-info .s-name { font-weight: 700; color: #2d3748; font-size: 1rem; }
+    .storno-modal .storno-info .s-email { font-size: 0.8rem; color: #6b7280; margin-top: 2px; }
+    .storno-modal .storno-info .s-dates { font-size: 0.82rem; color: #e05c9e; margin-top: 8px; font-weight: 500; }
+    .storno-btn {
+      flex: 2;
+      padding: 12px;
+      background: linear-gradient(135deg, #e05c9e, #c53030);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s;
+      font-family: inherit;
+    }
+    .storno-btn:hover { opacity: 0.88; }
+    .toast.error { background: #e05c9e; box-shadow: 0 8px 24px rgba(224,92,158,0.4); }
+  </style>
+</head>
+<body>
+
+<div class="calendar">
+  <div class="calendar-header">
+    <button class="nav-btn" id="prevBtn">&#8249;</button>
+    <div>
+      <div class="month-name" id="monthName"></div>
+      <div class="year" id="yearDisplay"></div>
+    </div>
+    <button class="nav-btn" id="nextBtn">&#8250;</button>
+  </div>
+  <div class="calendar-body">
+    <div class="weekdays">
+      <div class="weekday">Mo</div><div class="weekday">Di</div>
+      <div class="weekday">Mi</div><div class="weekday">Do</div>
+      <div class="weekday">Fr</div><div class="weekday">Sa</div>
+      <div class="weekday">So</div>
+    </div>
+    <div class="days" id="daysGrid"></div>
+
+    <div class="selection-bar">
+      <div class="label" id="selectionLabel">Tage anklicken zum Auswählen</div>
+      <button class="book-btn" id="bookBtn" disabled>Buchen</button>
+    </div>
+
+    <div class="bookings-section">
+      <div class="bookings-title">Buchungen</div>
+      <div id="bookingsList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2>Termin buchen</h2>
+    <div class="subtitle" id="modalSubtitle"></div>
+    <div class="selected-days-preview" id="daysPreview"></div>
+    <div class="field">
+      <label>Name</label>
+      <input type="text" id="inputName" placeholder="Dein Name" autocomplete="name">
+    </div>
+    <div class="field">
+      <label>E-Mail</label>
+      <input type="email" id="inputEmail" placeholder="deine@email.de" autocomplete="email">
+    </div>
+    <div class="modal-actions">
+      <button class="cancel-btn" id="cancelBtn">Abbrechen</button>
+      <button class="confirm-btn" id="confirmBtn">Jetzt buchen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Storno Modal -->
+<div class="modal-overlay" id="stornoOverlay">
+  <div class="modal storno-modal">
+    <h2>Termin stornieren</h2>
+    <div class="subtitle">Möchtest du diese Buchung wirklich stornieren?</div>
+    <div class="storno-info">
+      <div class="s-name" id="stornoName"></div>
+      <div class="s-email" id="stornoEmail"></div>
+      <div class="s-dates" id="stornoDates"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="cancel-btn" id="stornoCancelBtn">Behalten</button>
+      <button class="storno-btn" id="stornoConfirmBtn">Stornieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  const MONTHS = ['Januar','Februar','März','April','Mai','Juni',
+                  'Juli','August','September','Oktober','November','Dezember'];
+  const SHORT_MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun',
+                        'Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  const today = new Date();
+  let cur = { year: today.getFullYear(), month: today.getMonth() };
+
+  // selectedDates: Set of ISO strings "YYYY-MM-DD"
+  let selectedDates = new Set();
+
+  // bookings: [{ name, email, dates: ["YYYY-MM-DD", ...] }]
+  let bookings = JSON.parse(localStorage.getItem('amici_bookings') || '[]');
+
+  function dateKey(y, m, d) {
+    return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+
+  function bookedDates() {
+    const s = new Set();
+    bookings.forEach(b => b.dates.forEach(d => s.add(d)));
+    return s;
+  }
+
+  function formatKey(key) {
+    const [y, m, d] = key.split('-');
+    return `${parseInt(d)}. ${SHORT_MONTHS[parseInt(m)-1]} ${y}`;
+  }
+
+  function render() {
+    const { year, month } = cur;
+    document.getElementById('monthName').textContent = MONTHS[month];
+    document.getElementById('yearDisplay').textContent = year;
+
+    const firstDay = new Date(year, month, 1);
+    const lastDay  = new Date(year, month + 1, 0);
+    let startDow = firstDay.getDay();
+    startDow = startDow === 0 ? 6 : startDow - 1;
+
+    const booked = bookedDates();
+    const grid = document.getElementById('daysGrid');
+    grid.innerHTML = '';
+
+    // leading prev-month days
+    const prevLast = new Date(year, month, 0).getDate();
+    for (let i = startDow - 1; i >= 0; i--) {
+      const el = document.createElement('div');
+      el.className = 'day other-month';
+      el.textContent = prevLast - i;
+      grid.appendChild(el);
+    }
+
+    // current month
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const key = dateKey(year, month, d);
+      const el = document.createElement('div');
+      el.className = 'day';
+      el.textContent = d;
+
+      const dow = new Date(year, month, d).getDay();
+      if (dow === 0 || dow === 6) el.classList.add('weekend');
+
+      if (booked.has(key)) {
+        el.classList.add('booked');
+        el.title = 'Gebucht – klicken zum Stornieren';
+        el.addEventListener('click', () => openStornoModal(key));
+      } else {
+        if (selectedDates.has(key)) el.classList.add('selected');
+        if (d === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+          el.classList.add('today');
+        }
+        el.addEventListener('click', () => toggleDay(key, el));
+      }
+
+      grid.appendChild(el);
+    }
+
+    // trailing
+    const total = grid.children.length;
+    const rem = total % 7 === 0 ? 0 : 7 - (total % 7);
+    for (let i = 1; i <= rem; i++) {
+      const el = document.createElement('div');
+      el.className = 'day other-month';
+      el.textContent = i;
+      grid.appendChild(el);
+    }
+
+    updateSelectionBar();
+    renderBookings();
+  }
+
+  function toggleDay(key, el) {
+    if (selectedDates.has(key)) {
+      selectedDates.delete(key);
+      el.classList.remove('selected');
+    } else {
+      selectedDates.add(key);
+      el.classList.add('selected');
+      // remove today highlight if selected
+      el.classList.remove('today');
+    }
+    updateSelectionBar();
+  }
+
+  function updateSelectionBar() {
+    const count = selectedDates.size;
+    const label = document.getElementById('selectionLabel');
+    const btn   = document.getElementById('bookBtn');
+
+    if (count === 0) {
+      label.innerHTML = 'Tage anklicken zum Auswählen';
+      btn.disabled = true;
+    } else {
+      const sorted = [...selectedDates].sort();
+      const preview = sorted.map(formatKey).join(', ');
+      label.innerHTML = `<strong>${count} Tag${count > 1 ? 'e' : ''}</strong> ausgewählt`;
+      btn.disabled = false;
+    }
+  }
+
+  function renderBookings() {
+    const list = document.getElementById('bookingsList');
+    if (bookings.length === 0) {
+      list.innerHTML = '<div class="no-bookings">Noch keine Buchungen</div>';
+      return;
+    }
+    list.innerHTML = '';
+    [...bookings].reverse().forEach((b, ri) => {
+      const idx = bookings.length - 1 - ri;
+      const dates = b.dates.sort().map(formatKey).join(', ');
+      const el = document.createElement('div');
+      el.className = 'booking-entry';
+      el.innerHTML = `
+        <div>
+          <div class="who">${escHtml(b.name)}</div>
+          <div class="when">${dates}</div>
+        </div>
+        <button class="del-btn" title="Buchung löschen" data-idx="${idx}">✕</button>
+      `;
+      list.appendChild(el);
+    });
+
+    list.querySelectorAll('.del-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = parseInt(btn.dataset.idx);
+        bookings.splice(i, 1);
+        saveBookings();
+        render();
+      });
+    });
+  }
+
+  // ── Storno logic ──
+  let stornoTargetIdx = null;
+
+  function findBookingByDate(key) {
+    for (let i = 0; i < bookings.length; i++) {
+      if (bookings[i].dates.includes(key)) return i;
+    }
+    return -1;
+  }
+
+  function openStornoModal(key) {
+    const idx = findBookingByDate(key);
+    if (idx === -1) return;
+    stornoTargetIdx = idx;
+    const b = bookings[idx];
+    document.getElementById('stornoName').textContent = b.name;
+    document.getElementById('stornoEmail').textContent = b.email;
+    document.getElementById('stornoDates').textContent = b.dates.sort().map(formatKey).join(', ');
+    document.getElementById('stornoOverlay').classList.add('open');
+  }
+
+  function closeStornoModal() {
+    document.getElementById('stornoOverlay').classList.remove('open');
+    stornoTargetIdx = null;
+  }
+
+  document.getElementById('stornoCancelBtn').addEventListener('click', closeStornoModal);
+  document.getElementById('stornoOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('stornoOverlay')) closeStornoModal();
+  });
+  document.getElementById('stornoConfirmBtn').addEventListener('click', () => {
+    if (stornoTargetIdx === null) return;
+    const name = bookings[stornoTargetIdx].name;
+    bookings.splice(stornoTargetIdx, 1);
+    saveBookings();
+    closeStornoModal();
+    render();
+    showToast(`Buchung von ${name} storniert`, true);
+  });
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function saveBookings() {
+    localStorage.setItem('amici_bookings', JSON.stringify(bookings));
+  }
+
+  // ── Modal logic ──
+  document.getElementById('bookBtn').addEventListener('click', openModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalOverlay')) closeModal();
+  });
+
+  function openModal() {
+    const sorted = [...selectedDates].sort();
+    const preview = sorted.map(formatKey).join('\n');
+    document.getElementById('daysPreview').textContent = preview;
+    document.getElementById('modalSubtitle').innerHTML =
+      `<strong>${sorted.length} Tag${sorted.length > 1 ? 'e' : ''}</strong> ausgewählt`;
+    document.getElementById('inputName').value = '';
+    document.getElementById('inputEmail').value = '';
+    document.getElementById('modalOverlay').classList.add('open');
+    setTimeout(() => document.getElementById('inputName').focus(), 100);
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+  }
+
+  document.getElementById('confirmBtn').addEventListener('click', () => {
+    const name  = document.getElementById('inputName').value.trim();
+    const email = document.getElementById('inputEmail').value.trim();
+
+    if (!name) { document.getElementById('inputName').focus(); shake(document.getElementById('inputName')); return; }
+    if (!email || !email.includes('@')) { document.getElementById('inputEmail').focus(); shake(document.getElementById('inputEmail')); return; }
+
+    bookings.push({ name, email, dates: [...selectedDates] });
+    saveBookings();
+    selectedDates.clear();
+    closeModal();
+    render();
+    showToast(`✓ Gebucht für ${name}!`);
+  });
+
+  function shake(el) {
+    el.style.borderColor = '#e05c9e';
+    el.style.animation = 'none';
+    setTimeout(() => { el.style.borderColor = ''; }, 1200);
+  }
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.toggle('error', isError);
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // ── Nav ──
+  document.getElementById('prevBtn').addEventListener('click', () => {
+    cur.month--;
+    if (cur.month < 0) { cur.month = 11; cur.year--; }
+    render();
+  });
+  document.getElementById('nextBtn').addEventListener('click', () => {
+    cur.month++;
+    if (cur.month > 11) { cur.month = 0; cur.year++; }
+    render();
+  });
+
+  render();
+</script>
+</body>
+</html>
