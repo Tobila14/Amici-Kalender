@@ -358,6 +358,27 @@
     .storno-btn:hover { opacity: 0.88; }
     .toast.error { background: #e05c9e; box-shadow: 0 8px 24px rgba(224,92,158,0.4); }
 
+    /* ── LOADING OVERLAY ── */
+    .loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.35);
+      backdrop-filter: blur(3px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+    }
+    .loading-overlay.show { opacity: 1; pointer-events: all; }
+    .spinner {
+      width: 52px; height: 52px;
+      border: 5px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     /* ── PASSWORD SCREEN ── */
     .pw-screen {
       position: fixed; inset: 0;
@@ -477,7 +498,7 @@
 <div class="modal-overlay" id="stornoOverlay">
   <div class="modal storno-modal">
     <h2>Termin stornieren</h2>
-    <div class="subtitle">Möchtest du diese Buchung wirklich stornieren?</div>
+    <div class="subtitle" id="stornoSubtitle"></div>
     <div class="storno-info">
       <div class="s-name" id="stornoName"></div>
       <div class="s-dates" id="stornoDates"></div>
@@ -491,6 +512,7 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
 
 <script>
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbz7bOv-h1fhBoUqWx6w9RK3cj3c97M0mepflKjEFBSVKyrYZ69tDSdtMR3hJmmCfxlbVQ/exec';
@@ -685,7 +707,8 @@
       return;
     }
     list.innerHTML = '';
-    [...bookings].reverse().forEach(b => {
+    [...bookings].reverse().forEach((b, ri) => {
+      const idx = bookings.length - 1 - ri;
       const dates = b.dates.sort().map(formatKey).join(', ');
       const el = document.createElement('div');
       el.className = 'booking-entry';
@@ -694,22 +717,15 @@
           <div class="who">${escHtml(b.name)}</div>
           <div class="when">${dates}</div>
         </div>
-        <button class="del-btn" title="Buchung löschen" data-id="${escHtml(String(b.id))}">✕</button>
+        <button class="del-btn" title="Buchung löschen" data-idx="${idx}">✕</button>
       `;
       list.appendChild(el);
     });
 
     list.querySelectorAll('.del-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.dataset.id;
-        btn.disabled = true;
-        try {
-          await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(id)}&pw=${encodeURIComponent(userPassword)}`, { mode: 'no-cors' });
-          await loadBookings();
-        } catch(e) {
-          showToast('Fehler beim Löschen', true);
-          btn.disabled = false;
-        }
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx);
+        openStornoModalByIdx(idx);
       });
     });
   }
@@ -727,8 +743,13 @@
   function openStornoModal(key) {
     const idx = findBookingByDate(key);
     if (idx === -1) return;
+    openStornoModalByIdx(idx);
+  }
+
+  function openStornoModalByIdx(idx) {
     stornoTargetIdx = idx;
     const b = bookings[idx];
+    document.getElementById('stornoSubtitle').innerHTML = `Bist du <strong>${escHtml(b.name)}</strong>?`;
     document.getElementById('stornoName').textContent = b.name;
     document.getElementById('stornoDates').textContent = b.dates.sort().map(formatKey).join(', ');
     document.getElementById('stornoOverlay').classList.add('open');
@@ -750,6 +771,7 @@
     const btn = document.getElementById('stornoConfirmBtn');
     btn.disabled = true;
     closeStornoModal();
+    showLoading(true);
     try {
       await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(b.id)}&pw=${encodeURIComponent(userPassword)}`, { mode: 'no-cors' });
       showToast(`Buchung von ${name} storniert`, true);
@@ -757,6 +779,7 @@
     } catch(e) {
       showToast('Fehler beim Stornieren', true);
     } finally {
+      showLoading(false);
       btn.disabled = false;
     }
   });
@@ -823,6 +846,8 @@
     const btn = document.getElementById('confirmBtn');
     btn.disabled = true;
     btn.textContent = '…';
+    closeModal();
+    showLoading(true);
 
     try {
       const params = new URLSearchParams({
@@ -833,12 +858,12 @@
       });
       await fetch(`${GAS_URL}?${params}`, { mode: 'no-cors' });
       selectedDates.clear();
-      closeModal();
       showToast(`✓ Gebucht für ${name}!`);
       await loadBookings();
     } catch(e) {
       showToast('Fehler beim Speichern', true);
     } finally {
+      showLoading(false);
       btn.disabled = false;
       btn.textContent = 'Jetzt buchen';
     }
@@ -848,6 +873,10 @@
     el.style.borderColor = '#e05c9e';
     el.style.animation = 'none';
     setTimeout(() => { el.style.borderColor = ''; }, 1200);
+  }
+
+  function showLoading(on) {
+    document.getElementById('loadingOverlay').classList.toggle('show', on);
   }
 
   function showToast(msg, isError = false) {
