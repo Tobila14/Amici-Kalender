@@ -87,17 +87,36 @@
     .day:hover:not(.empty):not(.other-month) { background: #f0ebff; color: #764ba2; transform: scale(1.08); }
     .day.other-month { color: #e2e8f0; cursor: default; pointer-events: none; }
     .day.weekend:not(.today):not(.selected) { color: #e05c9e; }
-    .day.today:not(.selected) {
-      background: linear-gradient(135deg, #667eea, #764ba2);
+    .day.today:not(.selected):not(.range-start) {
+      background: linear-gradient(135deg, #f6ad55, #ed8936);
       color: white;
       font-weight: 700;
-      box-shadow: 0 4px 12px rgba(102,126,234,0.45);
+      box-shadow: 0 4px 12px rgba(237,137,54,0.45);
     }
+    .day.past {
+      color: #cbd5e0;
+      cursor: default;
+      pointer-events: none;
+    }
+    .day.past.weekend { color: #e9c8d8; }
     .day.selected {
       background: linear-gradient(135deg, #667eea, #764ba2);
       color: white;
       font-weight: 700;
       box-shadow: 0 4px 12px rgba(102,126,234,0.45);
+    }
+    .day.range-start {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(102,126,234,0.45);
+      outline: 3px dashed rgba(255,255,255,0.7);
+      outline-offset: -3px;
+    }
+    .day.range-preview {
+      background: #ddd6fe;
+      color: #4c1d95;
+      font-weight: 600;
     }
     .day.booked {
       background: #fed7e2;
@@ -382,10 +401,6 @@
       <label>Name</label>
       <input type="text" id="inputName" placeholder="Dein Name" autocomplete="name">
     </div>
-    <div class="field">
-      <label>E-Mail</label>
-      <input type="email" id="inputEmail" placeholder="deine@email.de" autocomplete="email">
-    </div>
     <div class="modal-actions">
       <button class="cancel-btn" id="cancelBtn">Abbrechen</button>
       <button class="confirm-btn" id="confirmBtn">Jetzt buchen</button>
@@ -400,7 +415,6 @@
     <div class="subtitle">Möchtest du diese Buchung wirklich stornieren?</div>
     <div class="storno-info">
       <div class="s-name" id="stornoName"></div>
-      <div class="s-email" id="stornoEmail"></div>
       <div class="s-dates" id="stornoDates"></div>
     </div>
     <div class="modal-actions">
@@ -414,6 +428,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbz7bOv-h1fhBoUqWx6w9RK3cj3c97M0mepflKjEFBSVKyrYZ69tDSdtMR3hJmmCfxlbVQ/exec';
+
   const MONTHS = ['Januar','Februar','März','April','Mai','Juni',
                   'Juli','August','September','Oktober','November','Dezember'];
   const SHORT_MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun',
@@ -424,8 +440,9 @@
 
   // selectedDates: Set of ISO strings "YYYY-MM-DD"
   let selectedDates = new Set();
+  let rangeStart = null;
 
-  // bookings: [{ name, email, dates: ["YYYY-MM-DD", ...] }]
+  // bookings: [{ id, name, email, dates: ["YYYY-MM-DD", ...] }]
   let bookings = JSON.parse(localStorage.getItem('amici_bookings') || '[]');
 
   function dateKey(y, m, d) {
@@ -476,16 +493,41 @@
       const dow = new Date(year, month, d).getDay();
       if (dow === 0 || dow === 6) el.classList.add('weekend');
 
+      const isPast = new Date(year, month, d) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      if (isPast) { el.classList.add('past'); grid.appendChild(el); continue; }
+
       if (booked.has(key)) {
         el.classList.add('booked');
         el.title = 'Gebucht – klicken zum Stornieren';
         el.addEventListener('click', () => openStornoModal(key));
       } else {
-        if (selectedDates.has(key)) el.classList.add('selected');
-        if (d === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+        if (key === rangeStart)          el.classList.add('range-start');
+        else if (selectedDates.has(key)) el.classList.add('selected');
+        if (d === today.getDate() && month === today.getMonth() && year === today.getFullYear() && key !== rangeStart && !selectedDates.has(key)) {
           el.classList.add('today');
         }
-        el.addEventListener('click', () => toggleDay(key, el));
+        el.addEventListener('click', () => toggleDay(key));
+        // Hover-Preview wenn Startdatum gesetzt
+        el.addEventListener('mouseenter', () => {
+          if (rangeStart === null || key === rangeStart) return;
+          const s = rangeStart < key ? rangeStart : key;
+          const e = rangeStart < key ? key : rangeStart;
+          document.querySelectorAll('.day.range-preview').forEach(x => x.classList.remove('range-preview'));
+          const cur = new Date(s);
+          while (cur.toISOString().slice(0,10) <= e) {
+            const k = cur.toISOString().slice(0,10);
+            if (k !== rangeStart) {
+              document.querySelectorAll(`.day`).forEach(x => {
+                if (x.dataset.key === k) x.classList.add('range-preview');
+              });
+            }
+            cur.setDate(cur.getDate() + 1);
+          }
+        });
+        el.addEventListener('mouseleave', () => {
+          document.querySelectorAll('.day.range-preview').forEach(x => x.classList.remove('range-preview'));
+        });
+        el.dataset.key = key;
       }
 
       grid.appendChild(el);
@@ -505,17 +547,32 @@
     renderBookings();
   }
 
-  function toggleDay(key, el) {
-    if (selectedDates.has(key)) {
-      selectedDates.delete(key);
-      el.classList.remove('selected');
+  function toggleDay(key) {
+    const booked = bookedDates();
+
+    if (rangeStart === null) {
+      // Ersten Tag wählen
+      selectedDates.clear();
+      rangeStart = key;
+    } else if (rangeStart === key) {
+      // Gleichen Tag nochmal: abbrechen
+      rangeStart = null;
+      selectedDates.clear();
     } else {
-      selectedDates.add(key);
-      el.classList.add('selected');
-      // remove today highlight if selected
-      el.classList.remove('today');
+      // Zweiten Tag gewählt: Range füllen
+      const start = rangeStart < key ? rangeStart : key;
+      const end   = rangeStart < key ? key : rangeStart;
+      selectedDates.clear();
+      const d = new Date(start);
+      const endDate = new Date(end);
+      while (d <= endDate) {
+        const k = d.toISOString().slice(0, 10);
+        if (!booked.has(k)) selectedDates.add(k);
+        d.setDate(d.getDate() + 1);
+      }
+      rangeStart = null;
     }
-    updateSelectionBar();
+    render();
   }
 
   function updateSelectionBar() {
@@ -523,12 +580,13 @@
     const label = document.getElementById('selectionLabel');
     const btn   = document.getElementById('bookBtn');
 
-    if (count === 0) {
-      label.innerHTML = 'Tage anklicken zum Auswählen';
+    if (rangeStart !== null) {
+      label.innerHTML = `<strong>${formatKey(rangeStart)}</strong> – Enddatum wählen`;
+      btn.disabled = true;
+    } else if (count === 0) {
+      label.innerHTML = 'Startdatum anklicken';
       btn.disabled = true;
     } else {
-      const sorted = [...selectedDates].sort();
-      const preview = sorted.map(formatKey).join(', ');
       label.innerHTML = `<strong>${count} Tag${count > 1 ? 'e' : ''}</strong> ausgewählt`;
       btn.disabled = false;
     }
@@ -541,8 +599,7 @@
       return;
     }
     list.innerHTML = '';
-    [...bookings].reverse().forEach((b, ri) => {
-      const idx = bookings.length - 1 - ri;
+    [...bookings].reverse().forEach(b => {
       const dates = b.dates.sort().map(formatKey).join(', ');
       const el = document.createElement('div');
       el.className = 'booking-entry';
@@ -551,17 +608,22 @@
           <div class="who">${escHtml(b.name)}</div>
           <div class="when">${dates}</div>
         </div>
-        <button class="del-btn" title="Buchung löschen" data-idx="${idx}">✕</button>
+        <button class="del-btn" title="Buchung löschen" data-id="${escHtml(String(b.id))}">✕</button>
       `;
       list.appendChild(el);
     });
 
     list.querySelectorAll('.del-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const i = parseInt(btn.dataset.idx);
-        bookings.splice(i, 1);
-        saveBookings();
-        render();
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        btn.disabled = true;
+        try {
+          await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(id)}`, { mode: 'no-cors' });
+          await loadBookings();
+        } catch(e) {
+          showToast('Fehler beim Löschen', true);
+          btn.disabled = false;
+        }
       });
     });
   }
@@ -582,7 +644,6 @@
     stornoTargetIdx = idx;
     const b = bookings[idx];
     document.getElementById('stornoName').textContent = b.name;
-    document.getElementById('stornoEmail').textContent = b.email;
     document.getElementById('stornoDates').textContent = b.dates.sort().map(formatKey).join(', ');
     document.getElementById('stornoOverlay').classList.add('open');
   }
@@ -596,22 +657,40 @@
   document.getElementById('stornoOverlay').addEventListener('click', e => {
     if (e.target === document.getElementById('stornoOverlay')) closeStornoModal();
   });
-  document.getElementById('stornoConfirmBtn').addEventListener('click', () => {
+  document.getElementById('stornoConfirmBtn').addEventListener('click', async () => {
     if (stornoTargetIdx === null) return;
-    const name = bookings[stornoTargetIdx].name;
-    bookings.splice(stornoTargetIdx, 1);
-    saveBookings();
+    const b = bookings[stornoTargetIdx];
+    const name = b.name;
+    const btn = document.getElementById('stornoConfirmBtn');
+    btn.disabled = true;
     closeStornoModal();
-    render();
-    showToast(`Buchung von ${name} storniert`, true);
+    try {
+      await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(b.id)}`, { mode: 'no-cors' });
+      showToast(`Buchung von ${name} storniert`, true);
+      await loadBookings();
+    } catch(e) {
+      showToast('Fehler beim Stornieren', true);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function saveBookings() {
-    localStorage.setItem('amici_bookings', JSON.stringify(bookings));
+  async function loadBookings() {
+    try {
+      const res = await fetch(`${GAS_URL}?action=get`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        bookings = data;
+        localStorage.setItem('amici_bookings', JSON.stringify(bookings));
+        render();
+      }
+    } catch(e) {
+      console.error('Laden fehlgeschlagen:', e);
+    }
   }
 
   // ── Modal logic ──
@@ -628,7 +707,6 @@
     document.getElementById('modalSubtitle').innerHTML =
       `<strong>${sorted.length} Tag${sorted.length > 1 ? 'e' : ''}</strong> ausgewählt`;
     document.getElementById('inputName').value = '';
-    document.getElementById('inputEmail').value = '';
     document.getElementById('modalOverlay').classList.add('open');
     setTimeout(() => document.getElementById('inputName').focus(), 100);
   }
@@ -637,19 +715,32 @@
     document.getElementById('modalOverlay').classList.remove('open');
   }
 
-  document.getElementById('confirmBtn').addEventListener('click', () => {
-    const name  = document.getElementById('inputName').value.trim();
-    const email = document.getElementById('inputEmail').value.trim();
+  document.getElementById('confirmBtn').addEventListener('click', async () => {
+    const name = document.getElementById('inputName').value.trim();
 
-    if (!name) { document.getElementById('inputName').focus(); shake(document.getElementById('inputName')); return; }
-    if (!email || !email.includes('@')) { document.getElementById('inputEmail').focus(); shake(document.getElementById('inputEmail')); return; }
+    if (!name)  { shake(document.getElementById('inputName'));  return; }
 
-    bookings.push({ name, email, dates: [...selectedDates] });
-    saveBookings();
-    selectedDates.clear();
-    closeModal();
-    render();
-    showToast(`✓ Gebucht für ${name}!`);
+    const btn = document.getElementById('confirmBtn');
+    btn.disabled = true;
+    btn.textContent = '…';
+
+    try {
+      const params = new URLSearchParams({
+        action: 'add',
+        name,
+        dates: [...selectedDates].join(',')
+      });
+      await fetch(`${GAS_URL}?${params}`, { mode: 'no-cors' });
+      selectedDates.clear();
+      closeModal();
+      showToast(`✓ Gebucht für ${name}!`);
+      await loadBookings();
+    } catch(e) {
+      showToast('Fehler beim Speichern', true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Jetzt buchen';
+    }
   });
 
   function shake(el) {
@@ -679,6 +770,8 @@
   });
 
   render();
+  loadBookings();
+  setInterval(loadBookings, 30000);
 </script>
 </body>
 </html>
