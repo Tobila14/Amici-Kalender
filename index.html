@@ -357,9 +357,74 @@
     }
     .storno-btn:hover { opacity: 0.88; }
     .toast.error { background: #e05c9e; box-shadow: 0 8px 24px rgba(224,92,158,0.4); }
+
+    /* ── PASSWORD SCREEN ── */
+    .pw-screen {
+      position: fixed; inset: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 999;
+      padding: 20px;
+    }
+    .pw-screen.hidden { display: none; }
+    .pw-box {
+      background: white;
+      border-radius: 24px;
+      padding: 40px 32px;
+      width: 100%;
+      max-width: 340px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .pw-box h1 { font-size: 1.6rem; color: #2d3748; margin-bottom: 6px; }
+    .pw-box p  { font-size: 0.85rem; color: #a0aec0; margin-bottom: 28px; }
+    .pw-box input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #e2e8f0;
+      border-radius: 14px;
+      font-size: 1rem;
+      color: #2d3748;
+      outline: none;
+      text-align: center;
+      letter-spacing: 3px;
+      font-family: inherit;
+      transition: border-color .2s;
+      margin-bottom: 14px;
+    }
+    .pw-box input:focus { border-color: #764ba2; }
+    .pw-box input.shake { border-color: #e05c9e; animation: pwshake .35s; }
+    @keyframes pwshake {
+      0%,100% { transform: translateX(0); }
+      25%      { transform: translateX(-8px); }
+      75%      { transform: translateX(8px); }
+    }
+    .pw-submit {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border: none;
+      border-radius: 14px;
+      color: white;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity .2s;
+    }
+    .pw-submit:hover { opacity: 0.9; }
   </style>
 </head>
 <body>
+
+<div class="pw-screen" id="pwScreen">
+  <div class="pw-box">
+    <h1>Amici Kalender</h1>
+    <p>Bitte Passwort eingeben</p>
+    <input type="password" id="pwInput" placeholder="••••••" autocomplete="current-password">
+    <button class="pw-submit" id="pwSubmit">Weiter</button>
+  </div>
+</div>
 
 <div class="calendar">
   <div class="calendar-header">
@@ -429,6 +494,27 @@
 
 <script>
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbz7bOv-h1fhBoUqWx6w9RK3cj3c97M0mepflKjEFBSVKyrYZ69tDSdtMR3hJmmCfxlbVQ/exec';
+  let userPassword = localStorage.getItem('amici_pw') || '';
+
+  // ── Passwort-Screen ──
+  (function initAuth() {
+    if (userPassword) {
+      document.getElementById('pwScreen').classList.add('hidden');
+    }
+    const input  = document.getElementById('pwInput');
+    const submit = document.getElementById('pwSubmit');
+
+    function tryLogin() {
+      const val = input.value.trim();
+      if (!val) { input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 400); return; }
+      userPassword = val;
+      localStorage.setItem('amici_pw', val);
+      document.getElementById('pwScreen').classList.add('hidden');
+      loadBookings();
+    }
+    submit.addEventListener('click', tryLogin);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+  })();
 
   const MONTHS = ['Januar','Februar','März','April','Mai','Juni',
                   'Juli','August','September','Oktober','November','Dezember'];
@@ -443,7 +529,7 @@
   let rangeStart = null;
 
   // bookings: [{ id, name, email, dates: ["YYYY-MM-DD", ...] }]
-  let bookings = JSON.parse(localStorage.getItem('amici_bookings') || '[]');
+  let bookings = [];
 
   function dateKey(y, m, d) {
     return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -618,7 +704,7 @@
         const id = btn.dataset.id;
         btn.disabled = true;
         try {
-          await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(id)}`, { mode: 'no-cors' });
+          await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(id)}&pw=${encodeURIComponent(userPassword)}`, { mode: 'no-cors' });
           await loadBookings();
         } catch(e) {
           showToast('Fehler beim Löschen', true);
@@ -665,7 +751,7 @@
     btn.disabled = true;
     closeStornoModal();
     try {
-      await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(b.id)}`, { mode: 'no-cors' });
+      await fetch(`${GAS_URL}?action=delete&id=${encodeURIComponent(b.id)}&pw=${encodeURIComponent(userPassword)}`, { mode: 'no-cors' });
       showToast(`Buchung von ${name} storniert`, true);
       await loadBookings();
     } catch(e) {
@@ -679,10 +765,24 @@
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  function wrongPassword() {
+    localStorage.removeItem('amici_pw');
+    localStorage.removeItem('amici_bookings');
+    bookings = [];
+    userPassword = '';
+    document.getElementById('pwScreen').classList.remove('hidden');
+    const input = document.getElementById('pwInput');
+    input.value = '';
+    input.classList.add('shake');
+    setTimeout(() => input.classList.remove('shake'), 400);
+    showToast('Falsches Passwort', true);
+  }
+
   async function loadBookings() {
     try {
-      const res = await fetch(`${GAS_URL}?action=get`);
+      const res  = await fetch(`${GAS_URL}?action=get&pw=${encodeURIComponent(userPassword)}`);
       const data = await res.json();
+      if (data && data.error === 'Unauthorized') { wrongPassword(); return; }
       if (Array.isArray(data)) {
         bookings = data;
         localStorage.setItem('amici_bookings', JSON.stringify(bookings));
@@ -727,6 +827,7 @@
     try {
       const params = new URLSearchParams({
         action: 'add',
+        pw: userPassword,
         name,
         dates: [...selectedDates].join(',')
       });
