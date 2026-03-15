@@ -568,6 +568,22 @@
     return `${parseInt(d)}. ${SHORT_MONTHS[parseInt(m)-1]} ${y}`;
   }
 
+  function formatDateRange(dates) {
+    const sorted = [...dates].sort();
+    if (sorted.length === 1) return formatKey(sorted[0]);
+    const first = sorted[0];
+    const last  = sorted[sorted.length - 1];
+    const [y1, m1, d1] = first.split('-');
+    const [y2, m2, d2] = last.split('-');
+    if (y1 === y2 && m1 === m2) {
+      return `${parseInt(d1)}. – ${parseInt(d2)}. ${SHORT_MONTHS[parseInt(m1)-1]} ${y1}`;
+    }
+    if (y1 === y2) {
+      return `${parseInt(d1)}. ${SHORT_MONTHS[parseInt(m1)-1]} – ${parseInt(d2)}. ${SHORT_MONTHS[parseInt(m2)-1]} ${y1}`;
+    }
+    return `${formatKey(first)} – ${formatKey(last)}`;
+  }
+
   function render() {
     const { year, month } = cur;
     document.getElementById('monthName').textContent = MONTHS[month];
@@ -702,14 +718,16 @@
 
   function renderBookings() {
     const list = document.getElementById('bookingsList');
-    if (bookings.length === 0) {
+    const todayKey = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
+    const upcoming = bookings.filter(b => b.dates.some(d => d >= todayKey));
+    if (upcoming.length === 0) {
       list.innerHTML = '<div class="no-bookings">Noch keine Buchungen</div>';
       return;
     }
     list.innerHTML = '';
-    [...bookings].reverse().forEach((b, ri) => {
-      const idx = bookings.length - 1 - ri;
-      const dates = b.dates.sort().map(formatKey).join(', ');
+    [...upcoming].reverse().forEach((b, ri) => {
+      const idx = bookings.indexOf(b);
+      const dates = formatDateRange(b.dates);
       const el = document.createElement('div');
       el.className = 'booking-entry';
       el.innerHTML = `
@@ -751,7 +769,7 @@
     const b = bookings[idx];
     document.getElementById('stornoSubtitle').innerHTML = `Bist du <strong>${escHtml(b.name)}</strong>?`;
     document.getElementById('stornoName').textContent = b.name;
-    document.getElementById('stornoDates').textContent = b.dates.sort().map(formatKey).join(', ');
+    document.getElementById('stornoDates').textContent = formatDateRange(b.dates);
     document.getElementById('stornoOverlay').classList.add('open');
   }
 
